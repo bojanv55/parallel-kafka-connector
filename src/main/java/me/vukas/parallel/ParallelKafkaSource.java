@@ -46,7 +46,7 @@ public class ParallelKafkaSource<K, V> {
     public ParallelKafkaSource(Vertx vertx,
                                String consumerGroup,
                                KafkaConnectorIncomingConfiguration config,
-                               Optional<Integer> concurrency,
+                               ParallelSettings parallelSettings,
                                Instance<OpenTelemetry> openTelemetryInstance,
                                Instance<KafkaCommitHandler.Factory> commitHandlerFactories,
                                Instance<KafkaFailureHandler.Factory> failureHandlerFactories,
@@ -79,7 +79,7 @@ public class ParallelKafkaSource<K, V> {
         // So, we force the creation of different event loop context.
         context = ((VertxInternal) vertx.getDelegate()).createEventLoopContext();
         // fire consumer event (e.g. bind metrics)
-        client = new ParallelKafkaConsumer<>(config, concurrency, configCustomizers, deserializationFailureHandlers, consumerGroup,
+        client = new ParallelKafkaConsumer<>(config, parallelSettings, configCustomizers, deserializationFailureHandlers, consumerGroup,
                 index, this::reportFailure, getContext().getDelegate(), c -> kafkaCDIEvents.consumer().fire(c));
 
         if (configuration.getHealthEnabled()) {

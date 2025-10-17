@@ -1,5 +1,6 @@
 package me.vukas.parallel;
 
+import io.confluent.parallelconsumer.ParallelConsumerOptions;
 import io.quarkus.arc.Unremovable;
 import io.smallrye.reactive.messaging.annotations.ConnectorAttribute;
 import io.smallrye.reactive.messaging.connector.InboundConnector;
@@ -84,7 +85,14 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
     private Flow.Publisher<? extends Message<?>> createPublisher(Config config) {
         Config channelConfiguration = ConfigHelper.retrieveChannelConfiguration(configurations, config);
 
-        Optional<Integer> concurrency = ConcurrencyConnectorConfig.getConcurrency(channelConfiguration);
+        var concurrency = ConcurrencyConnectorConfig.getConcurrency(channelConfiguration);
+        var ordering = ParallelConnectorConfig.getOrdering(channelConfiguration);
+        var commitMode = ParallelConnectorConfig.getCommitMode(channelConfiguration);
+
+        ParallelSettings parallelSettings = new ParallelSettings(
+                concurrency.orElse(1),
+                ordering.orElse(ParallelConsumerOptions.ProcessingOrder.KEY)
+        , commitMode.orElse(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC));
 
         KafkaConnectorIncomingConfiguration ic = new KafkaConnectorIncomingConfiguration(channelConfiguration);
 
@@ -94,7 +102,7 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
             return s;
         });
 
-        ParallelKafkaSource<Object, Object> source = new ParallelKafkaSource<>(vertx, group, ic, concurrency,
+        ParallelKafkaSource<Object, Object> source = new ParallelKafkaSource<>(vertx, group, ic, parallelSettings,
                 null,
                 null, null,
                 null,

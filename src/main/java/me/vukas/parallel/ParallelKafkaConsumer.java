@@ -57,7 +57,7 @@ public class ParallelKafkaConsumer<K, V> {
     private ParallelKafkaDistributor<K, V> distributor;
 
     public ParallelKafkaConsumer(KafkaConnectorIncomingConfiguration config,
-                                 Optional<Integer> concurrency,
+                                 ParallelSettings parallelSettings,
                                  Instance<ClientCustomizer<Map<String, Object>>> configCustomizers,
                                  Instance<DeserializationFailureHandler<?>> deserializationFailureHandlers,
                                  String consumerGroup, int index,
@@ -65,7 +65,7 @@ public class ParallelKafkaConsumer<K, V> {
                                  Context context,
                                  java.util.function.Consumer<Consumer<K, V>> onConsumerCreated) {
         this(getKafkaConsumerConfiguration(config, configCustomizers, consumerGroup, index),
-                concurrency,
+                parallelSettings,
                 createDeserializationFailureHandler(true, deserializationFailureHandlers, config),
                 createDeserializationFailureHandler(false, deserializationFailureHandlers, config),
                 RuntimeKafkaSourceConfiguration.buildFromConfiguration(config),
@@ -78,7 +78,7 @@ public class ParallelKafkaConsumer<K, V> {
     }
 
     public ParallelKafkaConsumer(Map<String, Object> kafkaConfiguration,
-                                 Optional<Integer> concurrency,
+                                 ParallelSettings parallelSettings,
                                  DeserializationFailureHandler<K> keyDeserializationFailureHandler,
                                  DeserializationFailureHandler<V> valueDeserializationFailureHandler,
                                  RuntimeKafkaSourceConfiguration config,
@@ -123,9 +123,9 @@ public class ParallelKafkaConsumer<K, V> {
                         ParallelConsumerOptions<K, V> options =
                                 ParallelConsumerOptions.<K, V>builder()
                                         .consumer(consumer)
-                                        .ordering(ParallelConsumerOptions.ProcessingOrder.KEY)
-                                        .commitMode(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC)
-                                        .maxConcurrency(concurrency.orElse(1))
+                                        .ordering(parallelSettings.ordering())
+                                        .commitMode(parallelSettings.commitMode())
+                                        .maxConcurrency(parallelSettings.concurrency())
                                         .build();
 
 
