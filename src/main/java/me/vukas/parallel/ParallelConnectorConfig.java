@@ -14,22 +14,16 @@ public class ParallelConnectorConfig extends ConnectorConfig {
     }
 
     public static Optional<ProcessingOrder> getOrdering(Config connectorConfig) {
-        return connectorConfig.getOptionalValue("ordering", String.class)
-                .map(value -> {
-                    String simpleName = value.contains(".")
-                            ? value.substring(value.lastIndexOf('.') + 1)
-                            : value;
-                    return ProcessingOrder.valueOf(simpleName.toUpperCase(Locale.ROOT));
-                });
+        return connectorConfig.getOptionalValue("ordering", String.class).map(value -> {
+            String simpleName = value.contains(".") ? value.substring(value.lastIndexOf('.') + 1) : value;
+            return ProcessingOrder.valueOf(simpleName.toUpperCase(Locale.ROOT));
+        });
     }
 
     public static Optional<CommitMode> getCommitMode(Config connectorConfig) {
-        return connectorConfig.getOptionalValue("commit-mode", String.class)
-                .map(value -> {
-                    String simpleName = value.contains(".")
-                            ? value.substring(value.lastIndexOf('.') + 1)
-                            : value;
-                    return CommitMode.valueOf(simpleName.toUpperCase(Locale.ROOT));
-                });
+        return connectorConfig.getOptionalValue("commit-mode", String.class).map(value -> {
+            String simpleName = value.contains(".") ? value.substring(value.lastIndexOf('.') + 1) : value;
+            return CommitMode.valueOf(simpleName.toUpperCase(Locale.ROOT));
+        });
     }
 }

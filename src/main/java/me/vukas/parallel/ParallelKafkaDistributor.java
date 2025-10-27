@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaLogging.log;
 
-public class ParallelKafkaDistributor<K,V> {
+public class ParallelKafkaDistributor<K, V> {
     private final List<MultiEmitter<? super EmitterConsumerRecord<K, V>>> subscribers = new CopyOnWriteArrayList<>();
     private final AtomicInteger nextIndex = new AtomicInteger(0);
     private final AtomicBoolean started = new AtomicBoolean(false);
@@ -49,13 +49,13 @@ public class ParallelKafkaDistributor<K,V> {
 
                 // Actually subscribe to Kafka topics
                 var p = pcRef.get().processor();
-                if(topics != null) {
+                if (topics != null) {
                     p.subscribe(topics);
                 }
-                if(pattern != null) {
+                if (pattern != null) {
                     p.subscribe(pattern);
                 }
-                if(offsetSeeks!=null){
+                if (offsetSeeks != null) {
                     var c = pcRef.get().consumer();
                     c.assign(offsetSeeks.keySet());
                     for (Map.Entry<TopicPartition, Optional<Long>> tpOffset : offsetSeeks.entrySet()) {

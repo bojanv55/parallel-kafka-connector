@@ -108,8 +108,7 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
         return publisher.updateAndGet(existing -> {
             if (existing == null) {
                 return createPublisher(config);
-            }
-            else{
+            } else {
                 return existing;
             }
         });
@@ -125,7 +124,7 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
         ParallelSettings parallelSettings = new ParallelSettings(
                 concurrency.orElse(1),
                 ordering.orElse(ParallelConsumerOptions.ProcessingOrder.KEY)
-        , commitMode.orElse(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC));
+                , commitMode.orElse(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC));
 
         KafkaConnectorIncomingConfiguration ic = new KafkaConnectorIncomingConfiguration(channelConfiguration);
 

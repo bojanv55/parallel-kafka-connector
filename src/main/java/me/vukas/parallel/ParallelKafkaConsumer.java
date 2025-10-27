@@ -125,7 +125,6 @@ public class ParallelKafkaConsumer<K, V> {
                                         .build();
 
 
-
                         int cores = Runtime.getRuntime().availableProcessors();
                         VertxOptions vertxOptions = (new VertxOptions()).setWorkerPoolSize(cores);
                         MutinyVertxProcessor<K, V> processor = new MutinyVertxProcessor<>(Vertx.vertx(vertxOptions), options);
@@ -217,7 +216,7 @@ public class ParallelKafkaConsumer<K, V> {
         return ConfigUtils.customize(configuration.config(), configInterceptors, map);
     }
 
-    @SuppressWarnings({ "unchecked" })
+    @SuppressWarnings({"unchecked"})
     public static <T> DeserializationFailureHandler<T> createDeserializationFailureHandler(boolean isKey,
                                                                                            Instance<DeserializationFailureHandler<?>> deserializationFailureHandlers,
                                                                                            KafkaConnectorIncomingConfiguration configuration) {
