@@ -28,15 +28,13 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Deserializer;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
+import java.util.regex.Pattern;
 
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaExceptions.ex;
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaLogging.log;
@@ -99,8 +97,6 @@ public class ParallelKafkaConsumer<K, V> {
             throw ex.missingValueDeserializer(config.getChannel(), config.getChannel());
         }
 
-
-
         Deserializer<K> keyDeserializer = new DeserializerWrapper<>(keyDeserializerCN, true,
                 keyDeserializationFailureHandler, reportFailure, failOnDeserializationFailure);
         Deserializer<V> valueDeserializer = new DeserializerWrapper<>(valueDeserializerCN, false,
@@ -146,7 +142,17 @@ public class ParallelKafkaConsumer<K, V> {
 
     @CheckReturnValue
     public Multi<EmitterConsumerRecord<K, V>> subscribe(Set<String> topics) {
-        distributor = new ParallelKafkaDistributor<>(this.pcRef.get().processor(), topics);
+        distributor = new ParallelKafkaDistributor<>(pcRef, topics, null, null);
+        return distributor.createMulti();
+    }
+
+    public Multi<EmitterConsumerRecord<K, V>> subscribe(Pattern pattern) {
+        distributor = new ParallelKafkaDistributor<>(pcRef, null, pattern, null);
+        return distributor.createMulti();
+    }
+
+    public Multi<EmitterConsumerRecord<K, V>> assignAndSeek(Map<TopicPartition, Optional<Long>> offsetSeeks) {
+        distributor = new ParallelKafkaDistributor<>(pcRef, null, null, offsetSeeks);
         return distributor.createMulti();
     }
 
@@ -254,5 +260,9 @@ public class ParallelKafkaConsumer<K, V> {
 
     public Uni<Set<TopicPartition>> getAssignments() {
         return Uni.createFrom().item(unwrap().assignment());
+    }
+
+    public String get(String attribute) {
+        return (String) kafkaConfiguration.get(attribute);
     }
 }

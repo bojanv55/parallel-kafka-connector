@@ -1,12 +1,19 @@
 package me.vukas.parallel;
 
 import io.confluent.parallelconsumer.ParallelConsumerOptions;
+import io.opentelemetry.api.OpenTelemetry;
 import io.quarkus.arc.Unremovable;
+import io.smallrye.reactive.messaging.ClientCustomizer;
 import io.smallrye.reactive.messaging.annotations.ConnectorAttribute;
 import io.smallrye.reactive.messaging.connector.InboundConnector;
 import io.smallrye.reactive.messaging.health.HealthReport;
 import io.smallrye.reactive.messaging.health.HealthReporter;
+import io.smallrye.reactive.messaging.kafka.DeserializationFailureHandler;
+import io.smallrye.reactive.messaging.kafka.KafkaCDIEvents;
 import io.smallrye.reactive.messaging.kafka.KafkaConnectorIncomingConfiguration;
+import io.smallrye.reactive.messaging.kafka.KafkaConsumerRebalanceListener;
+import io.smallrye.reactive.messaging.kafka.commit.KafkaCommitHandler;
+import io.smallrye.reactive.messaging.kafka.fault.KafkaFailureHandler;
 import io.smallrye.reactive.messaging.kafka.impl.ConfigHelper;
 import io.smallrye.reactive.messaging.providers.connectors.ExecutionHolder;
 import io.smallrye.reactive.messaging.providers.impl.ConcurrencyConnectorConfig;
@@ -56,6 +63,32 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
     @Any
     Instance<Map<String, Object>> configurations;
 
+    @Inject
+    Instance<OpenTelemetry> openTelemetryInstance;
+
+    @Inject
+    @Any
+    Instance<KafkaCommitHandler.Factory> commitHandlerFactories;
+
+    @Inject
+    @Any
+    Instance<KafkaFailureHandler.Factory> failureHandlerFactories;
+
+    @Inject
+    @Any
+    Instance<KafkaConsumerRebalanceListener> consumerRebalanceListeners;
+
+    @Inject
+    KafkaCDIEvents kafkaCDIEvents;
+
+    @Inject
+    @Any
+    Instance<ClientCustomizer<Map<String, Object>>> configCustomizers;
+
+    @Inject
+    @Any
+    Instance<DeserializationFailureHandler<?>> deserializationFailureHandlers;
+
     private Vertx vertx;
 
     private final AtomicReference<Flow.Publisher<? extends Message<?>>> publisher = new AtomicReference<>(null);
@@ -103,10 +136,10 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
         });
 
         ParallelKafkaSource<Object, Object> source = new ParallelKafkaSource<>(vertx, group, ic, parallelSettings,
-                null,
-                null, null,
-                null,
-                null, null, null, -1);
+                openTelemetryInstance,
+                commitHandlerFactories, failureHandlerFactories,
+                consumerRebalanceListeners,
+                kafkaCDIEvents, configCustomizers, deserializationFailureHandlers, -1);
         sources.add(source);
 
         return source.getStream();

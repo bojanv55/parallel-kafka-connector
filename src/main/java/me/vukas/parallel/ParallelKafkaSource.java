@@ -8,10 +8,14 @@ import io.smallrye.reactive.messaging.health.HealthReport;
 import io.smallrye.reactive.messaging.kafka.*;
 import io.smallrye.reactive.messaging.kafka.commit.KafkaCommitHandler;
 import io.smallrye.reactive.messaging.kafka.fault.KafkaFailureHandler;
+import io.smallrye.reactive.messaging.kafka.tracing.KafkaOpenTelemetryInstrumenter;
+import io.smallrye.reactive.messaging.kafka.tracing.KafkaTrace;
 import io.vertx.core.impl.ContextInternal;
 import io.vertx.core.impl.VertxInternal;
 import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.inject.Instance;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.RebalanceInProgressException;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
 
@@ -21,6 +25,7 @@ import java.util.stream.Collectors;
 
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaExceptions.ex;
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaLogging.log;
+import static io.smallrye.reactive.messaging.kafka.impl.KafkaSource.getOffsetSeeks;
 
 public class ParallelKafkaSource<K, V> {
 
@@ -39,34 +44,28 @@ public class ParallelKafkaSource<K, V> {
     private final int index;
     private final Set<String> topics;
 
+    private final boolean isTracingEnabled;
+
     private final ParallelKafkaConsumer<K, V> client;
 
     private final ContextInternal context;
 
-    public ParallelKafkaSource(Vertx vertx,
-                               String consumerGroup,
-                               KafkaConnectorIncomingConfiguration config,
-                               ParallelSettings parallelSettings,
-                               Instance<OpenTelemetry> openTelemetryInstance,
-                               Instance<KafkaCommitHandler.Factory> commitHandlerFactories,
-                               Instance<KafkaFailureHandler.Factory> failureHandlerFactories,
-                               Instance<KafkaConsumerRebalanceListener> consumerRebalanceListeners,
-                               KafkaCDIEvents kafkaCDIEvents,
-                               Instance<ClientCustomizer<Map<String, Object>>> configCustomizers,
-                               Instance<DeserializationFailureHandler<?>> deserializationFailureHandlers,
-                               int index) {
+    private final KafkaOpenTelemetryInstrumenter kafkaInstrumenter;
+
+    private final Instance<KafkaConsumerRebalanceListener> consumerRebalanceListeners;
+
+    public ParallelKafkaSource(Vertx vertx, String consumerGroup, KafkaConnectorIncomingConfiguration config, ParallelSettings parallelSettings, Instance<OpenTelemetry> openTelemetryInstance, Instance<KafkaCommitHandler.Factory> commitHandlerFactories, Instance<KafkaFailureHandler.Factory> failureHandlerFactories, Instance<KafkaConsumerRebalanceListener> consumerRebalanceListeners, KafkaCDIEvents kafkaCDIEvents, Instance<ClientCustomizer<Map<String, Object>>> configCustomizers, Instance<DeserializationFailureHandler<?>> deserializationFailureHandlers, int index) {
 
         this.group = consumerGroup;
         this.index = index;
+        this.consumerRebalanceListeners = consumerRebalanceListeners;
         this.topics = getTopics(config);
         String seekToOffset = config.getAssignSeek().orElse(null);
-        //Map<TopicPartition, Optional<Long>> offsetSeeks = getOffsetSeeks(seekToOffset, config.getChannel(), topics);
+        Map<TopicPartition, Optional<Long>> offsetSeeks = getOffsetSeeks(seekToOffset, config.getChannel(), topics);
 
         Pattern pattern;
         if (config.getPattern()) {
-            pattern = Pattern.compile(config.getTopic()
-                    .orElseThrow(() -> new IllegalArgumentException("Invalid Kafka incoming configuration for channel `"
-                            + config.getChannel() + "`, `pattern` must be used with the `topic` attribute")));
+            pattern = Pattern.compile(config.getTopic().orElseThrow(() -> new IllegalArgumentException("Invalid Kafka incoming configuration for channel `" + config.getChannel() + "`, `pattern` must be used with the `topic` attribute")));
             log.configuredPattern(config.getChannel(), pattern.toString());
         } else {
             log.configuredTopics(config.getChannel(), topics);
@@ -79,8 +78,7 @@ public class ParallelKafkaSource<K, V> {
         // So, we force the creation of different event loop context.
         context = ((VertxInternal) vertx.getDelegate()).createEventLoopContext();
         // fire consumer event (e.g. bind metrics)
-        client = new ParallelKafkaConsumer<>(config, parallelSettings, configCustomizers, deserializationFailureHandlers, consumerGroup,
-                index, this::reportFailure, getContext().getDelegate(), c -> kafkaCDIEvents.consumer().fire(c));
+        client = new ParallelKafkaConsumer<>(config, parallelSettings, configCustomizers, deserializationFailureHandlers, consumerGroup, index, this::reportFailure, getContext().getDelegate(), c -> kafkaCDIEvents.consumer().fire(c));
 
         if (configuration.getHealthEnabled()) {
             health = new ParallelKafkaSourceHealth(this, configuration, client, topics, pattern);
@@ -88,41 +86,61 @@ public class ParallelKafkaSource<K, V> {
             health = null;
         }
 
+        isTracingEnabled = this.configuration.getTracingEnabled();
         isHealthEnabled = this.configuration.getHealthEnabled();
         isHealthReadinessEnabled = this.configuration.getHealthReadinessEnabled();
         isCloudEventEnabled = this.configuration.getCloudEvents();
         channel = this.configuration.getChannel();
 
         Multi<EmitterConsumerRecord<K, V>> multi;
-        multi = client.subscribe(topics);
+        if (pattern != null) {
+            multi = client.subscribe(pattern);
+        } else {
+            if (offsetSeeks.isEmpty()) {
+                multi = client.subscribe(topics);
+            } else {
+                multi = client.assignAndSeek(offsetSeeks);
+            }
+        }
 
         multi = multi.onSubscription().invoke(() -> {
             subscribed = true;
+            final String groupId = client.get(ConsumerConfig.GROUP_ID_CONFIG);
+            final String clientId = client.get(ConsumerConfig.CLIENT_ID_CONFIG);
+            log.connectedToKafka(clientId, config.getBootstrapServers(), groupId, topics);
         });
 
-        Multi<IncomingKafkaRecord<K, V>> incomingMulti =
-                multi
-                        .onItem().transform(rec ->
-                                new IncomingKafkaRecord<>(rec.message(), channel, index, new KafkaCommitHandler() {
-                                    @Override
-                                    public <K1, V1> Uni<Void> handle(IncomingKafkaRecord<K1, V1> record) {
-                                        log.info("ACKING");
-                                        rec.emitter().complete(null);
-                                        return Uni.createFrom().voidItem();
-                                    }
-                                },
-                                        new KafkaFailureHandler() {
-                                            @Override
-                                            public <K1, V1> Uni<Void> handle(IncomingKafkaRecord<K1, V1> record, Throwable reason, Metadata metadata) {
-                                                log.info("NACKING");
-                                                rec.emitter().fail(reason);
-                                                return Uni.createFrom().voidItem();
-                                            }
-                                        }, false, false)
-                ).onItem().invoke(() -> log.info("EMMITING MULTI NOW"));
+        multi = multi.onFailure().invoke(t -> {
+            log.unableToReadRecord(topics, t);
+            reportFailure(t, false);
+        });
 
-        this.stream = incomingMulti
-                .onFailure().invoke(t -> reportFailure(t, false));
+        Multi<IncomingKafkaRecord<K, V>> incomingMulti = multi.onItem().transform(rec -> new IncomingKafkaRecord<>(rec.message(), channel, index, new KafkaCommitHandler() {
+            @Override
+            public <K1, V1> Uni<Void> handle(IncomingKafkaRecord<K1, V1> record) {
+                //do ACK
+                rec.emitter().complete(null);
+                return Uni.createFrom().voidItem();
+            }
+        }, new KafkaFailureHandler() {
+            @Override
+            public <K1, V1> Uni<Void> handle(IncomingKafkaRecord<K1, V1> record, Throwable reason, Metadata metadata) {
+                //do NACK
+                rec.emitter().fail(reason);
+                return Uni.createFrom().voidItem();
+            }
+        }, false, isTracingEnabled));
+
+        if (config.getTracingEnabled()) {
+            incomingMulti = incomingMulti.onItem().invoke(record -> incomingTrace(record, false));
+        }
+        this.stream = incomingMulti.onFailure().invoke(t -> reportFailure(t, false));
+
+        if (isTracingEnabled) {
+            kafkaInstrumenter = KafkaOpenTelemetryInstrumenter.createForSource(openTelemetryInstance);
+        } else {
+            kafkaInstrumenter = null;
+        }
     }
 
     public Multi<IncomingKafkaRecord<K, V>> getStream() {
@@ -200,8 +218,7 @@ public class ParallelKafkaSource<K, V> {
                 actualFailures = new ArrayList<>(failures);
             }
             if (!actualFailures.isEmpty()) {
-                builder.add(channel, false,
-                        actualFailures.stream().map(Throwable::getMessage).collect(Collectors.joining()));
+                builder.add(channel, false, actualFailures.stream().map(Throwable::getMessage).collect(Collectors.joining()));
             } else {
                 builder.add(channel, true);
             }
@@ -224,5 +241,25 @@ public class ParallelKafkaSource<K, V> {
             health.isStarted(builder);
         }
         // If health is disabled, do not add anything to the builder.
+    }
+
+    public void incomingTrace(IncomingKafkaRecord<K, V> kafkaRecord, boolean insideBatch) {
+        if (isTracingEnabled) {
+            KafkaTrace kafkaTrace = new KafkaTrace.Builder().withPartition(kafkaRecord.getPartition()).withTopic(kafkaRecord.getTopic()).withOffset(kafkaRecord.getOffset()).withHeaders(kafkaRecord.getHeaders()).withGroupId(client.get(ConsumerConfig.GROUP_ID_CONFIG)).withClientId(client.get(ConsumerConfig.CLIENT_ID_CONFIG)).build();
+
+            kafkaInstrumenter.traceIncoming(kafkaRecord, kafkaTrace, !insideBatch);
+        }
+    }
+
+    String getConsumerGroup() {
+        return group;
+    }
+
+    int getConsumerIndex() {
+        return index;
+    }
+
+    Instance<KafkaConsumerRebalanceListener> getConsumerRebalanceListeners() {
+        return consumerRebalanceListeners;
     }
 }
