@@ -41,35 +41,34 @@ public class ParallelKafkaDistributor<K, V> {
     }
 
     public Multi<EmitterConsumerRecord<K, V>> createMulti() {
-
-        //run monitoring
-        executor.scheduleAtFixedRate(() -> {
-            var p = pcRef.get().processor();
-            if(p.isClosedOrFailed()){
-                log.info("Processor is closed or failed. Attempting to restart...");
-                try{
-                    p.close(Duration.ofSeconds(5), DrainingCloseable.DrainingMode.DRAIN);
-                }
-                catch (Exception e){
-                    log.warn("Failed to close", e);
-                }
-
-                try{
-                    pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit); //recreate all
-                    log.info("Parallel consumer restarted");
-                }
-                catch (Exception e){
-                    log.warn("Failed to restart", e);
-                }
-            }
-        }, 0, 1, TimeUnit.SECONDS);
-
         return Multi.createFrom().emitter(emitter -> {
             subscribers.add(emitter);
 
             if (started.compareAndSet(false, true)) {
                 //init conusmer and processor
                 pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit);
+
+                //run monitoring
+                executor.scheduleAtFixedRate(() -> {
+                    var p = pcRef.get().processor();
+                    if(p.isClosedOrFailed()){
+                        log.info("Processor is closed or failed. Attempting to restart...");
+                        try{
+                            p.close(Duration.ofSeconds(5), DrainingCloseable.DrainingMode.DRAIN);
+                        }
+                        catch (Exception e){
+                            log.warn("Failed to close", e);
+                        }
+
+                        try{
+                            pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit); //recreate all
+                            log.info("Parallel consumer restarted");
+                        }
+                        catch (Exception e){
+                            log.warn("Failed to restart", e);
+                        }
+                    }
+                }, 0, 1, TimeUnit.SECONDS);
             }
 
             emitter.onTermination(() -> subscribers.remove(emitter));
