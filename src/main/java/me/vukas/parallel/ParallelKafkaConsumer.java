@@ -114,23 +114,8 @@ public class ParallelKafkaConsumer<K, V> {
                     if (c != null) {
                         return c;
                     } else {
-                        KafkaConsumer<K, V> consumer = new KafkaConsumer<>(kafkaConfiguration, keyDeserializer, valueDeserializer);
-
-                        ParallelConsumerOptions<K, V> options =
-                                ParallelConsumerOptions.<K, V>builder()
-                                        .consumer(consumer)
-                                        .ordering(parallelSettings.ordering())
-                                        .commitMode(parallelSettings.commitMode())
-                                        .maxConcurrency(parallelSettings.concurrency())
-                                        .build();
-
-
-                        int cores = Runtime.getRuntime().availableProcessors();
-                        VertxOptions vertxOptions = (new VertxOptions()).setWorkerPoolSize(cores);
-                        MutinyVertxProcessor<K, V> processor = new MutinyVertxProcessor<>(Vertx.vertx(vertxOptions), options);
-
                         closed.set(false);
-                        return new ProcessorConsumer<>(processor, consumer);
+                        return new ProcessorConsumer<>(kafkaConfiguration, keyDeserializer, valueDeserializer, parallelSettings);
                     }
                 })).memoize().until(closed::get)
                 .runSubscriptionOn(kafkaWorker);

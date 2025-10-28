@@ -1,13 +1,19 @@
 package me.vukas.parallel;
 
+import io.confluent.parallelconsumer.internal.DrainingCloseable;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.helpers.MultiEmitterProcessor;
 import io.smallrye.mutiny.subscription.MultiEmitter;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,6 +31,8 @@ public class ParallelKafkaDistributor<K, V> {
     private final Pattern pattern;
     private final Map<TopicPartition, Optional<Long>> offsetSeeks;
 
+    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+
     public ParallelKafkaDistributor(AtomicReference<ProcessorConsumer<K, V>> pcRef, Set<String> topics, Pattern pattern, Map<TopicPartition, Optional<Long>> offsetSeeks) {
         this.pcRef = pcRef;
         this.topics = topics;
@@ -33,45 +41,35 @@ public class ParallelKafkaDistributor<K, V> {
     }
 
     public Multi<EmitterConsumerRecord<K, V>> createMulti() {
+
+        //run monitoring
+        executor.scheduleAtFixedRate(() -> {
+            var p = pcRef.get().processor();
+            if(p.isClosedOrFailed()){
+                log.info("Processor is closed or failed. Attempting to restart...");
+                try{
+                    p.close(Duration.ofSeconds(5), DrainingCloseable.DrainingMode.DRAIN);
+                }
+                catch (Exception e){
+                    log.warn("Failed to close", e);
+                }
+
+                try{
+                    pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit); //recreate all
+                    log.info("Parallel consumer restarted");
+                }
+                catch (Exception e){
+                    log.warn("Failed to restart", e);
+                }
+            }
+        }, 0, 1, TimeUnit.SECONDS);
+
         return Multi.createFrom().emitter(emitter -> {
             subscribers.add(emitter);
 
             if (started.compareAndSet(false, true)) {
-                pcRef.get().processor().onRecord(ctxRecord -> {
-                    try {
-                        ConsumerRecord<K, V> record = ctxRecord.getSingleConsumerRecord();
-                        return Uni.createFrom().emitter(uniEmitter -> emit(new EmitterConsumerRecord<>(uniEmitter, record)));
-                    } catch (Exception e) {
-                        log.error("Failed to create emitter", e);
-                        return Uni.createFrom().voidItem();
-                    }
-                });
-
-                // Actually subscribe to Kafka topics
-                var p = pcRef.get().processor();
-                if (topics != null) {
-                    p.subscribe(topics);
-                }
-                if (pattern != null) {
-                    p.subscribe(pattern);
-                }
-                if (offsetSeeks != null) {
-                    var c = pcRef.get().consumer();
-                    c.assign(offsetSeeks.keySet());
-                    for (Map.Entry<TopicPartition, Optional<Long>> tpOffset : offsetSeeks.entrySet()) {
-                        Optional<Long> seek = tpOffset.getValue();
-                        if (seek.isPresent()) {
-                            long offset = seek.get();
-                            if (offset == -1) {
-                                c.seekToEnd(Collections.singleton(tpOffset.getKey()));
-                            } else if (offset == 0) {
-                                c.seekToBeginning(Collections.singleton(tpOffset.getKey()));
-                            } else {
-                                c.seek(tpOffset.getKey(), offset);
-                            }
-                        }
-                    }
-                }
+                //init conusmer and processor
+                pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit);
             }
 
             emitter.onTermination(() -> subscribers.remove(emitter));
