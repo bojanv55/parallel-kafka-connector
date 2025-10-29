@@ -126,17 +126,12 @@ public class ParallelKafkaConsumer<K, V> {
 
     @CheckReturnValue
     public Multi<EmitterConsumerRecord<K, V>> subscribe(Set<String> topics) {
-        distributor = new ParallelKafkaDistributor<>(pcRef, topics, null, null);
+        distributor = new ParallelKafkaDistributor<>(pcRef, topics, null);
         return distributor.createMulti();
     }
 
     public Multi<EmitterConsumerRecord<K, V>> subscribe(Pattern pattern) {
-        distributor = new ParallelKafkaDistributor<>(pcRef, null, pattern, null);
-        return distributor.createMulti();
-    }
-
-    public Multi<EmitterConsumerRecord<K, V>> assignAndSeek(Map<TopicPartition, Optional<Long>> offsetSeeks) {
-        distributor = new ParallelKafkaDistributor<>(pcRef, null, null, offsetSeeks);
+        distributor = new ParallelKafkaDistributor<>(pcRef, null, pattern);
         return distributor.createMulti();
     }
 

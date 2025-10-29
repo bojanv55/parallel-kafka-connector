@@ -29,15 +29,13 @@ public class ParallelKafkaDistributor<K, V> {
     private final AtomicReference<ProcessorConsumer<K, V>> pcRef;
     private final Set<String> topics;
     private final Pattern pattern;
-    private final Map<TopicPartition, Optional<Long>> offsetSeeks;
 
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
-    public ParallelKafkaDistributor(AtomicReference<ProcessorConsumer<K, V>> pcRef, Set<String> topics, Pattern pattern, Map<TopicPartition, Optional<Long>> offsetSeeks) {
+    public ParallelKafkaDistributor(AtomicReference<ProcessorConsumer<K, V>> pcRef, Set<String> topics, Pattern pattern) {
         this.pcRef = pcRef;
         this.topics = topics;
         this.pattern = pattern;
-        this.offsetSeeks = offsetSeeks;
     }
 
     public Multi<EmitterConsumerRecord<K, V>> createMulti() {
@@ -46,7 +44,7 @@ public class ParallelKafkaDistributor<K, V> {
 
             if (started.compareAndSet(false, true)) {
                 //init conusmer and processor
-                pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit);
+                pcRef.get().recreate(topics, pattern, this::emit);
 
                 //run monitoring
                 executor.scheduleAtFixedRate(() -> {
@@ -61,7 +59,7 @@ public class ParallelKafkaDistributor<K, V> {
                         }
 
                         try{
-                            pcRef.get().recreate(topics, pattern, offsetSeeks, this::emit); //recreate all
+                            pcRef.get().recreate(topics, pattern, this::emit); //recreate all
                             log.info("Parallel consumer restarted");
                         }
                         catch (Exception e){

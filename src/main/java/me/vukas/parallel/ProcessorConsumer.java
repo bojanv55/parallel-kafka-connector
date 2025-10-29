@@ -9,9 +9,13 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Deserializer;
+import org.checkerframework.checker.units.qual.A;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaLogging.log;
 
@@ -47,7 +51,7 @@ public final class ProcessorConsumer<K, V> {
         this.processor = new MutinyVertxProcessor<>(Vertx.vertx(vertxOptions), options);
     }
 
-    public synchronized void recreate(Set<String> topics, Pattern pattern, Map<TopicPartition, Optional<Long>> offsetSeeks, java.util.function.Consumer<EmitterConsumerRecord<K, V>> emit) {
+    public synchronized void recreate(Set<String> topics, Pattern pattern, java.util.function.Consumer<EmitterConsumerRecord<K, V>> emit) {
         recreateConsumerProcessor();
 
         this.processor.onRecord(ctxRecord -> {
@@ -67,23 +71,6 @@ public final class ProcessorConsumer<K, V> {
         }
         if (pattern != null) {
             p.subscribe(pattern);
-        }
-        if (offsetSeeks != null) {
-            var c = this.consumer;
-            c.assign(offsetSeeks.keySet());
-            for (Map.Entry<TopicPartition, Optional<Long>> tpOffset : offsetSeeks.entrySet()) {
-                Optional<Long> seek = tpOffset.getValue();
-                if (seek.isPresent()) {
-                    long offset = seek.get();
-                    if (offset == -1) {
-                        c.seekToEnd(Collections.singleton(tpOffset.getKey()));
-                    } else if (offset == 0) {
-                        c.seekToBeginning(Collections.singleton(tpOffset.getKey()));
-                    } else {
-                        c.seek(tpOffset.getKey(), offset);
-                    }
-                }
-            }
         }
     }
 

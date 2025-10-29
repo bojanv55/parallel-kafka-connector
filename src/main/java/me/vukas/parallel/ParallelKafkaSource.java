@@ -61,7 +61,6 @@ public class ParallelKafkaSource<K, V> {
         this.consumerRebalanceListeners = consumerRebalanceListeners;
         this.topics = getTopics(config);
         String seekToOffset = config.getAssignSeek().orElse(null);
-        Map<TopicPartition, Optional<Long>> offsetSeeks = getOffsetSeeks(seekToOffset, config.getChannel(), topics);
 
         Pattern pattern;
         if (config.getPattern()) {
@@ -96,11 +95,7 @@ public class ParallelKafkaSource<K, V> {
         if (pattern != null) {
             multi = client.subscribe(pattern);
         } else {
-            if (offsetSeeks.isEmpty()) {
-                multi = client.subscribe(topics);
-            } else {
-                multi = client.assignAndSeek(offsetSeeks);
-            }
+            multi = client.subscribe(topics);
         }
 
         multi = multi.onSubscription().invoke(() -> {
@@ -129,7 +124,7 @@ public class ParallelKafkaSource<K, V> {
                 rec.emitter().fail(reason);
                 return Uni.createFrom().voidItem();
             }
-        }, false, isTracingEnabled));
+        }, false, isTracingEnabled)).onItem().invoke(() -> System.out.println("EMITTING ITEM"));
 
         if (config.getTracingEnabled()) {
             incomingMulti = incomingMulti.onItem().invoke(record -> incomingTrace(record, false));

@@ -2,7 +2,6 @@ package me.vukas.parallel;
 
 import io.confluent.parallelconsumer.ParallelConsumerOptions;
 import io.opentelemetry.api.OpenTelemetry;
-import io.quarkus.arc.Unremovable;
 import io.smallrye.reactive.messaging.ClientCustomizer;
 import io.smallrye.reactive.messaging.annotations.ConnectorAttribute;
 import io.smallrye.reactive.messaging.connector.InboundConnector;
@@ -41,7 +40,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static io.smallrye.reactive.messaging.kafka.i18n.KafkaLogging.log;
 
-@Unremovable
 @ApplicationScoped
 @Connector(ParallelKafkaConnector.CONNECTOR_NAME)
 @ConnectorAttribute(name = "bootstrap.servers", alias = "kafka.bootstrap.servers", type = "string", defaultValue = "localhost:9092", direction = ConnectorAttribute.Direction.INCOMING_AND_OUTGOING, description = "A comma-separated list of host:port to use for establishing the initial connection to the Kafka cluster.")
@@ -123,8 +121,8 @@ public class ParallelKafkaConnector implements InboundConnector, HealthReporter 
 
         ParallelSettings parallelSettings = new ParallelSettings(
                 concurrency.orElse(1),
-                ordering.orElse(ParallelConsumerOptions.ProcessingOrder.KEY)
-                , commitMode.orElse(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC));
+                ordering.orElse(ParallelConsumerOptions.ProcessingOrder.KEY),
+                commitMode.orElse(ParallelConsumerOptions.CommitMode.PERIODIC_CONSUMER_SYNC));
 
         KafkaConnectorIncomingConfiguration ic = new KafkaConnectorIncomingConfiguration(channelConfiguration);
 
