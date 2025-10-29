@@ -124,7 +124,7 @@ public class ParallelKafkaSource<K, V> {
                 rec.emitter().fail(reason);
                 return Uni.createFrom().voidItem();
             }
-        }, false, isTracingEnabled)).onItem().invoke(() -> System.out.println("EMITTING ITEM"));
+        }, false, isTracingEnabled));
 
         if (config.getTracingEnabled()) {
             incomingMulti = incomingMulti.onItem().invoke(record -> incomingTrace(record, false));
